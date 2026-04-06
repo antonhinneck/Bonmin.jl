@@ -1,59 +1,54 @@
-## Optimizer
+import MathOptInterface as MOI
 
-mutable struct BonminOptimizer <: MOI.AbstractOptimizer
-    ptr::Ptr{Cvoid}
-    num_vars::Int
-    sense::MOI.OptimizationSense
+## Model definition
+
+mutable struct Optimizer <: MOI.AbstractOptimizer
+    model::MOI.Utilities.UniversalFallback{MOI.Utilities.Model{Float64}}
+    n::Int
+    m::Int
+    termination_status::MOI.TerminationStatusCode
+    primal_status::MOI.ResultStatusCode
+    objective_value::Float64
+    solution::Vector{Float64}
+
+    function Optimizer()
+        model = MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}())
+        return new(
+            model,
+            0,
+            0,
+            MOI.OPTIMIZE_NOT_CALLED,
+            MOI.NO_SOLUTION,
+            NaN,
+            Float64[],
+        )
+    end
 end
 
-function BonminOptimizer()
-    ptr = bonmin_create()
-    return BonminOptimizer(ptr, 0, MOI.MIN_SENSE)
+## Support declarations
+
+MOI.supports_incremental_interface(::Optimizer) = false
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.GreaterThan{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.LessThan{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.Interval{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.EqualTo{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.Integer}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.ZeroOne}) = true
+
+MOI.is_empty(opt::Optimizer) = MOI.is_empty(opt.model)
+MOI.empty!(opt::Optimizer) = MOI.empty!(opt.model)
+
+function MOI.copy_to(dest::Optimizer, src::MOI.ModelLike)
+    MOI.empty!(dest.model)
+    return MOI.copy_to(dest.model, src)
 end
 
-function Base.finalize(opt::BonminOptimizer)
-    bonmin_free(opt.ptr)
-end
+## Getter methods
 
-## Variables
+MOI.get(opt::Optimizer, ::MOI.TerminationStatus) = opt.termination_status
+MOI.get(opt::Optimizer, ::MOI.PrimalStatus) = opt.primal_status
+MOI.get(opt::Optimizer, ::MOI.ObjectiveValue) = opt.objective_value
 
-function MOI.add_variable(opt::BonminOptimizer)
-    bonmin_add_variable(opt.ptr, 0.0, 1e20, 0)
-    opt.num_vars += 1
-    return MOI.VariableIndex(opt.num_vars)
-end
-
-MOI.supports(::BonminOptimizer, ::MOI.VariableIndex) = true
-
-function MOI.get(opt::BonminOptimizer, ::MOI.NumberOfVariables)
-    return opt.num_vars
-end
-
-## Objective
-
-function MOI.set(opt::BonminOptimizer,
-                 ::MOI.ObjectiveSense,
-                 sense::MOI.OptimizationSense)
-    opt.sense = sense
-end
-
-function MOI.get(opt::BonminOptimizer,
-                 ::MOI.ObjectiveSense)
-    return opt.sense
-end
-
-## Solution
-
-function MOI.optimize!(opt::BonminOptimizer)
-    ccall((:bonmin_solve, lib), Cvoid, (Ptr{Cvoid},), opt.ptr)
-end
-
-function MOI.get(opt::BonminOptimizer, ::MOI.TerminationStatus)
-    return MOI.SUCCESS
-end
-
-function MOI.get(opt::BonminOptimizer,
-                 ::MOI.VariablePrimal,
-                 v::MOI.VariableIndex)
-    return 0.0  # placeholder
+function MOI.get(opt::Optimizer, ::MOI.VariablePrimal, vi::MOI.VariableIndex)
+    return opt.solution[vi.value]
 end

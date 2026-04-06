@@ -3,11 +3,13 @@ module Bonmin
     __precompile__(true)
     import MathOptInterface as MOI
 
-    include("lib.jl")          # 🔵 C bindings
-    include("moi_wrapper.jl") # MOI layer
+    const libbonmin = joinpath(@__DIR__, "..", "deps", "lib", "libbonmin_bridge.so")
 
-    export bonmin_create, # lib
-           bonmin_add_variable,
-           BonminOptimizer # moi_wrapper
+    include("moi_wrapper.jl")
+    include("callbacks.jl")
+    include("translate.jl")
+    include("results.jl")
+
+    export Optimizer
 
 end

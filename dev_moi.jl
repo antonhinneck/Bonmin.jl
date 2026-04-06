@@ -4,7 +4,7 @@ Pkg.activate(pwd())
 using Bonmin
 import MathOptInterface as MOI
 
-opt = BonminOptimizer()
+opt = Bonmin.Optimizer()
 MOI.add_variable(opt)
 MOI.add_variable(opt)
 MOI.optimize!(opt)

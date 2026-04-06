@@ -1,8 +1,7 @@
-g++ -fPIC -shared \
-    -Iinclude \
+g++ -std=c++17 -fPIC -shared \
+    ./src/bonmin_bridge.cpp \
+    -o ./lib/libbonmin_bridge.so \
     -I/usr/include/coin \
+    -I./include \
     -DHAVE_CSTDDEF \
-    src/bonmin_c.cpp \
-    -o lib/libbonmin_wrapper.so \
-    -L/usr/lib/x86_64-linux-gnu \
-    -lbonmin -lipopt -lCoinUtils
+    -lbonmin -lipopt
