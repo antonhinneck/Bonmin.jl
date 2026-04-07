@@ -13,6 +13,7 @@ typedef void (*bonmin_eval_jac_g_cb)(void* user_data, const double* x, int n, do
 double bonmin_solve_problem(
     int n,
     int m,
+    int m_nlp,
     const double* x_l,
     const double* x_u,
     const double* x0,

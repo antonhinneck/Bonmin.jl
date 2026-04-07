@@ -9,29 +9,64 @@ end
 
 function MOI.optimize!(opt::Optimizer)
     flat = build_flat_model(opt.model)
-    st = make_state(flat.evaluator, flat.n, flat.m, length(flat.jac_i))
+
+    # state
+    st = make_state(flat)
     x_out = copy(flat.x0)
 
+    # merged constraint bounds
+    g_l = vcat(flat.g_l_nlp, flat.g_l_aff)
+    g_u = vcat(flat.g_u_nlp, flat.g_u_aff)
+
+    # combined Jacobian structure
+    jac_i = flat.jac_i
+    jac_j = flat.jac_j
+    nnz_jac = length(jac_i)
+
+    # shortcuts
     x_l = flat.x_l
     x_u = flat.x_u
     x0 = flat.x0
     var_types = flat.var_types
-    g_l = flat.g_l
-    g_u = flat.g_u
-    jac_i = flat.jac_i
-    jac_j = flat.jac_j
+
+    if opt.debug
+        @show g_l
+        @show g_u
+
+        @show jac_i
+        @show jac_j
+        @show nnz_jac
+
+        @show flat.m_aff
+        @show flat.A_i
+        @show flat.A_j
+        @show flat.A_v
+        @show flat.g_l_aff
+        @show flat.g_u_aff
+
+        @show x_l
+        @show x_u
+        @show x0
+        @show var_types
+    end
+
+    # validation
+    @assert length(jac_i) == length(jac_j)
+    @assert length(g_l) == flat.m
+    @assert length(g_u) == flat.m
+    @assert flat.m == flat.m_nlp + flat.m_aff
 
     c_eval_f = @cfunction(jl_eval_f, Cdouble, (Ptr{Cvoid}, Ptr{Cdouble}, Cint))
     c_eval_grad_f = @cfunction(jl_eval_grad_f, Cvoid, (Ptr{Cvoid}, Ptr{Cdouble}, Cint, Ptr{Cdouble}))
     c_eval_g = @cfunction(jl_eval_g, Cvoid, (Ptr{Cvoid}, Ptr{Cdouble}, Cint, Ptr{Cdouble}, Cint))
     c_eval_jac_g = @cfunction(jl_eval_jac_g, Cvoid, (Ptr{Cvoid}, Ptr{Cdouble}, Cint, Ptr{Cdouble}, Cint))
 
-    obj = GC.@preserve st x_l x_u x0 var_types g_l g_u jac_i jac_j x_out begin
+    obj = GC.@preserve flat st x_l x_u x0 var_types g_l g_u jac_i jac_j x_out begin
         ccall(
             (:bonmin_solve_problem, libbonmin),
             Cdouble,
             (
-                Cint, Cint,
+                Cint, Cint, Cint,
                 Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cdouble},
                 Ptr{Cint},
                 Ptr{Cdouble}, Ptr{Cdouble},
@@ -40,11 +75,13 @@ function MOI.optimize!(opt::Optimizer)
                 Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid},
                 Ptr{Cdouble},
             ),
-            flat.n, flat.m,
+            flat.n,
+            flat.m,
+            flat.m_nlp,
             x_l, x_u, x0,
             var_types,
             g_l, g_u,
-            jac_i, jac_j, length(jac_i),
+            jac_i, jac_j, nnz_jac,
             Base.pointer_from_objref(st),
             c_eval_f, c_eval_grad_f, c_eval_g, c_eval_jac_g,
             x_out,

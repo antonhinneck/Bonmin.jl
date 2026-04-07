@@ -1,0 +1,3 @@
+Building bonmin bridge...
+Running: `g++ -std=c++17 -fPIC -shared /home/antonhinneck/Repos/Bonmin.jl/deps/src/bonmin_bridge.cpp -o /home/antonhinneck/Repos/Bonmin.jl/deps/lib/libbonmin_bridge.so -I/usr/include/coin -I./include -DHAVE_CSTDDEF -lbonmin -lipopt`
+Build successful: /home/antonhinneck/Repos/Bonmin.jl/deps/lib/libbonmin_bridge.so

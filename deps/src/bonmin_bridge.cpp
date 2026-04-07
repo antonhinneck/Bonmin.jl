@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <stdexcept>
+#include <limits>
 
 #include "BonTMINLP.hpp"
 #include "BonBonminSetup.hpp"
@@ -26,6 +27,7 @@ public:
     MoiTMINLP(
         int n_,
         int m_,
+        int m_nlp_,
         const double* x_l_,
         const double* x_u_,
         const double* x0_,
@@ -37,7 +39,11 @@ public:
         int nnz_jac_,
         CallbackBundle cb_
     )
-    : n(n_), m(m_), nnz_jac(nnz_jac_), cb(cb_),
+    : n(n_),
+      m(m_),
+      m_nlp(m_nlp_),
+      nnz_jac(nnz_jac_),
+      cb(cb_),
       x_l(x_l_, x_l_ + n_),
       x_u(x_u_, x_u_ + n_),
       x0(x0_, x0_ + n_),
@@ -64,6 +70,19 @@ public:
         std::memcpy(xu, x_u.data(), sizeof(Number) * n);
         std::memcpy(gl, g_l.data(), sizeof(Number) * m);
         std::memcpy(gu, g_u.data(), sizeof(Number) * m);
+
+        #ifdef BONMIN_DEBUG
+        std::cerr << "x_l:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << xl[i];
+        std::cerr << "\nx_u:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << xu[i];
+        std::cerr << "\ng_l:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << gl[i];
+        std::cerr << "\ng_u:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << gu[i];
+        std::cerr << std::endl;
+        #endif
+
         return true;
     }
 
@@ -97,26 +116,48 @@ public:
     }
 
     bool get_constraints_linearity(Index m_,
-                                Ipopt::TNLP::LinearityType* con_lin) override {
+                               Ipopt::TNLP::LinearityType* con_lin) override {
         for (Index i = 0; i < m_; ++i) {
-            con_lin[i] = Ipopt::TNLP::NON_LINEAR;
+            if (i < m_nlp)
+                con_lin[i] = Ipopt::TNLP::NON_LINEAR;
+            else
+                con_lin[i] = Ipopt::TNLP::LINEAR;
         }
         return true;
     }
 
     bool eval_f(Index, const Number* x, bool, Number& obj_value) override {
         obj_value = cb.eval_f(cb.user_data, x, n);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_f x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  f: " << obj_value << "\n";
+        #endif
         return true;
     }
 
     bool eval_grad_f(Index, const Number* x, bool, Number* grad_f) override {
         //std::cerr << "C++ eval_grad_f called, n = " << n << "\n";
         cb.eval_grad_f(cb.user_data, x, n, grad_f);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_grad_f x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  grad:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << grad_f[i];
+        std::cerr << "\n";
+        #endif
         return true;
     }
 
     bool eval_g(Index, const Number* x, bool, Index, Number* g) override {
         cb.eval_g(cb.user_data, x, n, g, m);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_g x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  g:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << g[i];
+        std::cerr << "\n";
+        #endif
         return true;
     }
 
@@ -126,8 +167,21 @@ public:
                 iRow[k] = jac_i[k];
                 jCol[k] = jac_j[k];
             }
+            #ifdef BONMIN_DEBUG
+            std::cerr << "jac structure:";
+            for (int k = 0; k < nnz_jac; ++k) {
+                std::cerr << " (" << iRow[k] << "," << jCol[k] << ")";
+            }
+            #endif
         } else {
             cb.eval_jac_g(cb.user_data, x, n, values, nnz_jac);
+            #ifdef BONMIN_DEBUG
+            std::cerr << "eval_jac_g x:";
+            for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+            std::cerr << "  values:";
+            for (int k = 0; k < nnz_jac; ++k) std::cerr << " " << values[k];
+            std::cerr << "\n";
+            #endif
         }
         return true;
     }
@@ -137,10 +191,16 @@ public:
         return false; // use quasi-Newton / no exact Hessian for v1
     }
 
-    void finalize_solution(Bonmin::TMINLP::SolverReturn,
-                           Index n_, const Number* x, Number obj_value) override {
-        x_sol.assign(x, x + n_);
+    void finalize_solution(Bonmin::TMINLP::SolverReturn status,
+                       Index n_, const Number* x, Number obj_value) override {
         obj_sol = obj_value;
+
+        if (status != Bonmin::TMINLP::SUCCESS || x == nullptr || n_ <= 0 || n_ != n) {
+            x_sol.clear();
+            return;
+        }
+
+        x_sol.assign(x, x + n_);
     }
 
     const Bonmin::TMINLP::SosInfo* sosConstraints() const override {
@@ -155,7 +215,7 @@ public:
     double obj_sol;
 
 private:
-    int n, m, nnz_jac;
+    int n, m, m_nlp, nnz_jac;
     CallbackBundle cb;
     std::vector<double> x_l, x_u, x0, g_l, g_u;
     std::vector<int> var_types, jac_i, jac_j;
@@ -164,6 +224,7 @@ private:
 extern "C" double bonmin_solve_problem(
     int n,
     int m,
+    int m_nlp,
     const double* x_l,
     const double* x_u,
     const double* x0,
@@ -180,25 +241,104 @@ extern "C" double bonmin_solve_problem(
     bonmin_eval_jac_g_cb eval_jac_g,
     double* x_out
 ) {
+    #ifdef BONMIN_DEBUG
+    std::cerr << "bonmin_solve_problem\n";
+    std::cerr << "  n = " << n << "\n";
+    std::cerr << "  m = " << m << "\n";
+    std::cerr << "  m_nlp = " << m_nlp << "\n";
+    std::cerr << "  nnz_jac = " << nnz_jac << "\n";
+
+    std::cerr << "  x_l = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x_l[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  x_u = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x_u[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  x0 = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x0[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  var_types = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << var_types[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  g_l = [";
+    for (int i = 0; i < m; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << g_l[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  g_u = [";
+    for (int i = 0; i < m; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << g_u[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  jac_i = [";
+    for (int k = 0; k < nnz_jac; ++k) {
+        if (k) std::cerr << ", ";
+        std::cerr << jac_i[k];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  jac_j = [";
+    for (int k = 0; k < nnz_jac; ++k) {
+        if (k) std::cerr << ", ";
+        std::cerr << jac_j[k];
+    }
+    std::cerr << "]\n";
+    #endif
+
     CallbackBundle cb{user_data, eval_f, eval_grad_f, eval_g, eval_jac_g};
 
     SmartPtr<MoiTMINLP> tminlp = new MoiTMINLP(
-        n, m, x_l, x_u, x0, var_types, g_l, g_u, jac_i, jac_j, nnz_jac, cb
+        n, m, m_nlp,
+        x_l, x_u, x0, var_types,
+        g_l, g_u,
+        jac_i, jac_j,
+        nnz_jac,
+        cb
     );
 
     Bonmin::BonminSetup setup;
     setup.initialize(tminlp);
 
-    // For a first version, set limited-memory Hessian approximation on the Bonmin/Ipopt side.
-    setup.options()->SetStringValue("hessian_approximation", "limited-memory", true, true);
+    setup.options()->SetStringValue(
+        "hessian_approximation",
+        "limited-memory",
+        true,
+        true
+    );
 
-    // Exact solve call depends on linked Bonmin version / driver arrangement.
-    // This is the part you may need to adapt for your local Bonmin build.
     Bonmin::Bab bb;
     bb(setup);
 
-    for (int i = 0; i < n; ++i) {
-        x_out[i] = tminlp->x_sol[i];
+    if ((int)tminlp->x_sol.size() == n) {
+        for (int i = 0; i < n; ++i) {
+            x_out[i] = tminlp->x_sol[i];
+        }
+        return tminlp->obj_sol;
     }
-    return tminlp->obj_sol;
+
+    // No solution produced
+    for (int i = 0; i < n; ++i) {
+        x_out[i] = x0[i];
+    }
+    return std::numeric_limits<double>::quiet_NaN();
 }

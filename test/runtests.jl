@@ -11,6 +11,42 @@ const TOL = 1e-5
 
 @testset "Bonmin basic tests" begin
 
+    @testset "Continuous LP" begin
+        model = Model(Bonmin.Optimizer)
+
+        @variable(model, x >= 0)
+        @variable(model, 0.4 >= y >= 0)
+
+        @objective(model, Min, 2*x + y)
+        @constraint(model, x + y >= 1)
+
+        optimize!(model)
+
+        @test termination_status(model) == MOI.LOCALLY_SOLVED
+
+        @test value(x) ≈ 0.6 atol=TOL
+        @test value(y) ≈ 0.4 atol=TOL
+        @test objective_value(model) ≈ 1.6 atol=TOL
+    end
+
+    @testset "Mixed-integer LP" begin
+        model = Model(Bonmin.Optimizer)
+
+        @variable(model, x >= 0, Int)
+        @variable(model, 0.4 >= y >= 0)
+
+        @objective(model, Min, 2*x + y)
+        @constraint(model, x + y >= 2)
+
+        optimize!(model)
+
+        @test termination_status(model) == MOI.LOCALLY_SOLVED
+
+        @test value(x) ≈ 2.0 atol=TOL
+        @test value(y) ≈ 0.0 atol=TOL
+        @test objective_value(model) ≈ 4.0 atol=TOL
+    end
+
     @testset "Continuous NLP" begin
         model = Model(Bonmin.Optimizer)
 
