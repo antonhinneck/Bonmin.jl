@@ -2,17 +2,35 @@ import MathOptInterface as MOI
 
 struct FlatModel
     n::Int
+    m_nlp::Int
+    m_aff::Int
     m::Int
+
     x_l::Vector{Float64}
     x_u::Vector{Float64}
     x0::Vector{Float64}
     var_types::Vector{Cint}   # 0 cont, 1 int, 2 bin
-    g_l::Vector{Float64}
-    g_u::Vector{Float64}
+
+    g_l_nlp::Vector{Float64}
+    g_u_nlp::Vector{Float64}
+    jac_i_nlp::Vector{Cint}
+    jac_j_nlp::Vector{Cint}
+
     jac_i::Vector{Cint}
     jac_j::Vector{Cint}
+
+    A_i::Vector{Cint}
+    A_j::Vector{Cint}
+    A_v::Vector{Float64}
+    g_l_aff::Vector{Float64}
+    g_u_aff::Vector{Float64}
+
     has_nlp_objective::Bool
-    evaluator::MOI.AbstractNLPEvaluator
+    evaluator::Union{Nothing,MOI.AbstractNLPEvaluator}
+
+    obj_aff_terms::Vector{Tuple{Int,Float64}}   # (1-based col, coeff)
+    obj_constant::Float64
+    has_affine_objective::Bool
 end
 
 function _var_bounds(model, vars)
@@ -45,7 +63,6 @@ function _var_bounds(model, vars)
             val = MOI.get(model, MOI.VariablePrimalStart(), vi)
             val !== nothing && (x0[k] = val)
         end
-        # integrality
         for ci in MOI.get(model, MOI.ListOfConstraintIndices{MOI.VariableIndex,MOI.Integer}())
             MOI.get(model, MOI.ConstraintFunction(), ci) == vi && (vtype[k] = 1)
         end
@@ -61,27 +78,173 @@ function _var_bounds(model, vars)
 end
 
 function build_flat_model(model::MOI.ModelLike)
+    # variables
     vars = MOI.get(model, MOI.ListOfVariableIndices())
     n = length(vars)
+    var_to_col = Dict(vi => i for (i, vi) in enumerate(vars))  # 1-based
 
+    # NLP block
     nlp = MOI.get(model, MOI.NLPBlock())
-    evaluator = nlp.evaluator
-    MOI.initialize(evaluator, [:Grad, :Jac])
+    if nlp === nothing
+        evaluator = nothing
+        jac_i_nlp = Cint[]
+        jac_j_nlp = Cint[]
+        g_l_nlp = Float64[]
+        g_u_nlp = Float64[]
+        m_nlp = 0
+        has_nlp_objective = false
+    else
+        evaluator = nlp.evaluator
+        MOI.initialize(evaluator, [:Grad, :Jac])
 
-    jac_struct = MOI.jacobian_structure(evaluator)
-    jac_i = Cint[i - 1 for (i, _) in jac_struct]  # C-style for Bonmin
-    jac_j = Cint[j - 1 for (_, j) in jac_struct]
+        jac_struct = collect(MOI.jacobian_structure(evaluator))
+        jac_i_nlp = Cint[i - 1 for (i, _) in jac_struct]  # 0-based
+        jac_j_nlp = Cint[j - 1 for (_, j) in jac_struct]  # 0-based
 
-    m = length(nlp.constraint_bounds)
-    g_l = [b.lower for b in nlp.constraint_bounds]
-    g_u = [b.upper for b in nlp.constraint_bounds]
+        @assert length(jac_i_nlp) == length(jac_j_nlp)
+        @assert all(0 .<= jac_j_nlp .< n) "Invalid Jacobian column index"
 
+        m_nlp = length(nlp.constraint_bounds)
+        g_l_nlp = [b.lower for b in nlp.constraint_bounds]
+        g_u_nlp = [b.upper for b in nlp.constraint_bounds]
+        has_nlp_objective = nlp.has_objective
+    end
+
+    # -------------------------
+    # AFFINE CONSTRAINTS
+    # -------------------------
+    aff_le = MOI.get(
+        model,
+        MOI.ListOfConstraintIndices{
+            MOI.ScalarAffineFunction{Float64},
+            MOI.LessThan{Float64},
+        }(),
+    )
+
+    aff_ge = MOI.get(
+        model,
+        MOI.ListOfConstraintIndices{
+            MOI.ScalarAffineFunction{Float64},
+            MOI.GreaterThan{Float64},
+        }(),
+    )
+
+    aff_eq = MOI.get(
+        model,
+        MOI.ListOfConstraintIndices{
+            MOI.ScalarAffineFunction{Float64},
+            MOI.EqualTo{Float64},
+        }(),
+    )
+
+    cis = Any[]
+    append!(cis, aff_le)
+    append!(cis, aff_ge)
+    append!(cis, aff_eq)
+
+    m_aff = length(cis)
+
+    A_i = Cint[]
+    A_j = Cint[]
+    A_v = Float64[]
+
+    g_l_aff = Float64[]
+    g_u_aff = Float64[]
+
+    for (row, ci) in enumerate(cis)
+        f = MOI.get(model, MOI.ConstraintFunction(), ci)
+        s = MOI.get(model, MOI.ConstraintSet(), ci)
+
+        for t in f.terms
+            col = var_to_col[t.variable] - 1  # 0-based
+            push!(A_i, Cint(row - 1))
+            push!(A_j, Cint(col))
+            push!(A_v, t.coefficient)
+        end
+
+        if s isa MOI.GreaterThan{Float64}
+            push!(g_l_aff, s.lower - f.constant)
+            push!(g_u_aff, Inf)
+        elseif s isa MOI.LessThan{Float64}
+            push!(g_l_aff, -Inf)
+            push!(g_u_aff, s.upper - f.constant)
+        elseif s isa MOI.EqualTo{Float64}
+            val = s.value - f.constant
+            push!(g_l_aff, val)
+            push!(g_u_aff, val)
+        else
+            error("Unsupported affine constraint set: $s")
+        end
+    end
+
+    @show(A_i)
+    @show(A_j)
+    @show(A_v)
+
+    # combined Jacobian structure
+    jac_i = copy(jac_i_nlp)
+    jac_j = copy(jac_j_nlp)
+    for k in eachindex(A_i)
+        push!(jac_i, Cint(A_i[k] + m_nlp))  # shift affine rows below NLP rows
+        push!(jac_j, A_j[k])
+    end
+
+    @assert length(jac_i) == length(jac_j)
+
+    # objective
+    obj_aff_terms = Tuple{Int,Float64}[]
+    obj_constant = 0.0
+    has_affine_objective = false
+
+    if MOI.supports(model, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}())
+        f = MOI.get(model, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}())
+        has_affine_objective = true
+        obj_constant = f.constant
+        for t in f.terms
+            push!(obj_aff_terms, (var_to_col[t.variable], t.coefficient)) # 1-based col
+        end
+    end
+
+    if has_nlp_objective
+        has_affine_objective = false
+        empty!(obj_aff_terms)
+        obj_constant = 0.0
+    end
+
+    # variable data
     x_l, x_u, x0, var_types = _var_bounds(model, vars)
 
+    # total constraints
+    m = m_nlp + m_aff
+
+    @assert length(g_l_nlp) == m_nlp
+    @assert length(g_l_aff) == m_aff
+    @assert m == m_nlp + m_aff
+
     return FlatModel(
-        n, m, x_l, x_u, x0, var_types,
-        g_l, g_u, jac_i, jac_j,
-        nlp.has_objective,
+        n,
+        m_nlp,
+        m_aff,
+        m,
+        x_l,
+        x_u,
+        x0,
+        var_types,
+        g_l_nlp,
+        g_u_nlp,
+        jac_i_nlp,
+        jac_j_nlp,
+        jac_i,
+        jac_j,
+        A_i,
+        A_j,
+        A_v,
+        g_l_aff,
+        g_u_aff,
+        has_nlp_objective,
         evaluator,
+        obj_aff_terms,
+        obj_constant,
+        has_affine_objective,
     )
 end

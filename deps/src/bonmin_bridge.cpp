@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <stdexcept>
+#include <limits>
 
 #include "BonTMINLP.hpp"
 #include "BonBonminSetup.hpp"
@@ -26,6 +27,7 @@ public:
     MoiTMINLP(
         int n_,
         int m_,
+        int m_nlp_,
         const double* x_l_,
         const double* x_u_,
         const double* x0_,
@@ -37,7 +39,11 @@ public:
         int nnz_jac_,
         CallbackBundle cb_
     )
-    : n(n_), m(m_), nnz_jac(nnz_jac_), cb(cb_),
+    : n(n_),
+      m(m_),
+      m_nlp(m_nlp_),
+      nnz_jac(nnz_jac_),
+      cb(cb_),
       x_l(x_l_, x_l_ + n_),
       x_u(x_u_, x_u_ + n_),
       x0(x0_, x0_ + n_),
@@ -97,9 +103,12 @@ public:
     }
 
     bool get_constraints_linearity(Index m_,
-                                Ipopt::TNLP::LinearityType* con_lin) override {
+                               Ipopt::TNLP::LinearityType* con_lin) override {
         for (Index i = 0; i < m_; ++i) {
-            con_lin[i] = Ipopt::TNLP::NON_LINEAR;
+            if (i < m_nlp)
+                con_lin[i] = Ipopt::TNLP::NON_LINEAR;
+            else
+                con_lin[i] = Ipopt::TNLP::LINEAR;
         }
         return true;
     }
@@ -155,7 +164,7 @@ public:
     double obj_sol;
 
 private:
-    int n, m, nnz_jac;
+    int n, m, m_nlp, nnz_jac;
     CallbackBundle cb;
     std::vector<double> x_l, x_u, x0, g_l, g_u;
     std::vector<int> var_types, jac_i, jac_j;
@@ -164,6 +173,7 @@ private:
 extern "C" double bonmin_solve_problem(
     int n,
     int m,
+    int m_nlp,
     const double* x_l,
     const double* x_u,
     const double* x0,
@@ -183,22 +193,37 @@ extern "C" double bonmin_solve_problem(
     CallbackBundle cb{user_data, eval_f, eval_grad_f, eval_g, eval_jac_g};
 
     SmartPtr<MoiTMINLP> tminlp = new MoiTMINLP(
-        n, m, x_l, x_u, x0, var_types, g_l, g_u, jac_i, jac_j, nnz_jac, cb
+        n, m, m_nlp,
+        x_l, x_u, x0, var_types,
+        g_l, g_u,
+        jac_i, jac_j,
+        nnz_jac,
+        cb
     );
 
     Bonmin::BonminSetup setup;
     setup.initialize(tminlp);
 
-    // For a first version, set limited-memory Hessian approximation on the Bonmin/Ipopt side.
-    setup.options()->SetStringValue("hessian_approximation", "limited-memory", true, true);
+    setup.options()->SetStringValue(
+        "hessian_approximation",
+        "limited-memory",
+        true,
+        true
+    );
 
-    // Exact solve call depends on linked Bonmin version / driver arrangement.
-    // This is the part you may need to adapt for your local Bonmin build.
     Bonmin::Bab bb;
     bb(setup);
 
-    for (int i = 0; i < n; ++i) {
-        x_out[i] = tminlp->x_sol[i];
+    if ((int)tminlp->x_sol.size() == n) {
+        for (int i = 0; i < n; ++i) {
+            x_out[i] = tminlp->x_sol[i];
+        }
+        return tminlp->obj_sol;
     }
-    return tminlp->obj_sol;
+
+    // No solution produced
+    for (int i = 0; i < n; ++i) {
+        x_out[i] = x0[i];
+    }
+    return std::numeric_limits<double>::quiet_NaN();
 }
