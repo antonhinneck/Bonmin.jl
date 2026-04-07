@@ -31,7 +31,7 @@ model = Model(Bonmin.Optimizer)
 @variable(model, y >= 0, Int)
 @variable(model, z >= 0)
 @NLobjective(model, Min, cos(x) + cos(y) + cos(z))
-@constraint(model, z - y <= 2.0)
+@constraint(model, z <= 2.0)
 
 function dump_constraint_types(model)
     b = backend(model)

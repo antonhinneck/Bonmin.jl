@@ -146,10 +146,16 @@ public:
         return false; // use quasi-Newton / no exact Hessian for v1
     }
 
-    void finalize_solution(Bonmin::TMINLP::SolverReturn,
-                           Index n_, const Number* x, Number obj_value) override {
-        x_sol.assign(x, x + n_);
+    void finalize_solution(Bonmin::TMINLP::SolverReturn status,
+                       Index n_, const Number* x, Number obj_value) override {
         obj_sol = obj_value;
+
+        if (status != Bonmin::TMINLP::SUCCESS || x == nullptr || n_ <= 0 || n_ != n) {
+            x_sol.clear();
+            return;
+        }
+
+        x_sol.assign(x, x + n_);
     }
 
     const Bonmin::TMINLP::SosInfo* sosConstraints() const override {
