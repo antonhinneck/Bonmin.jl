@@ -115,25 +115,24 @@ function jl_eval_g(
     st = unsafe_pointer_to_objref(user_data)::CallbackState
     _copy_x!(st.x, xptr, n)
 
-    # NLP part
+    # NLP part goes in g[1:st.m_nlp]
     if st.m_nlp > 0 && st.evaluator !== nothing
         fill!(st.g_nlp, 0.0)
         MOI.eval_constraint(st.evaluator, st.g_nlp, st.x)
         unsafe_copyto!(gptr, pointer(st.g_nlp), Int(st.m_nlp))
     end
 
-    # affine part
-    g_aff_ptr = gptr + st.m_nlp
-
     for i in 1:st.m_aff
-        unsafe_store!(g_aff_ptr + (i - 1), 0.0)
+        unsafe_store!(gptr, 0.0, st.m_nlp + i)
     end
 
+    # Accumulate affine rows
     for k in eachindex(st.A_i)
-        row = Int(st.A_i[k])          # 0-based
+        row = Int(st.A_i[k]) + 1      # affine-local row, now Julia 1-based
         col = Int(st.A_j[k]) + 1      # Julia 1-based
-        current = unsafe_load(g_aff_ptr + row)
-        unsafe_store!(g_aff_ptr + row, current + st.A_v[k] * st.x[col])
+        pos = st.m_nlp + row          # position in full g buffer, 1-based
+        current = unsafe_load(gptr, pos)
+        unsafe_store!(gptr, current + st.A_v[k] * st.x[col], pos)
     end
 
     @assert st.m_nlp + st.m_aff == m
@@ -152,20 +151,20 @@ function jl_eval_jac_g(
 
     idx = 1
 
-    # NLP Jacobian values in EXACTLY the same order as MOI.jacobian_structure
+    # NLP Jacobian values first
     if st.m_nlp > 0 && st.evaluator !== nothing
         fill!(st.jac_nlp, 0.0)
         MOI.eval_constraint_jacobian(st.evaluator, st.jac_nlp, st.x)
 
         for v in st.jac_nlp
-            unsafe_store!(valuesptr + (idx - 1), v)
+            unsafe_store!(valuesptr, v, idx)
             idx += 1
         end
     end
 
-    # affine Jacobian values
+    # affine Jacobian values next
     for v in st.A_v
-        unsafe_store!(valuesptr + (idx - 1), v)
+        unsafe_store!(valuesptr, v, idx)
         idx += 1
     end
 

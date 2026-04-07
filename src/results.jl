@@ -10,13 +10,6 @@ end
 function MOI.optimize!(opt::Optimizer)
     flat = build_flat_model(opt.model)
 
-    @show flat.m_aff
-    @show flat.A_i
-    @show flat.A_j
-    @show flat.A_v
-    @show flat.g_l_aff
-    @show flat.g_u_aff
-
     # state
     st = make_state(flat)
     x_out = copy(flat.x0)
@@ -35,6 +28,27 @@ function MOI.optimize!(opt::Optimizer)
     x_u = flat.x_u
     x0 = flat.x0
     var_types = flat.var_types
+
+    if opt.debug
+        @show g_l
+        @show g_u
+
+        @show jac_i
+        @show jac_j
+        @show nnz_jac
+
+        @show flat.m_aff
+        @show flat.A_i
+        @show flat.A_j
+        @show flat.A_v
+        @show flat.g_l_aff
+        @show flat.g_u_aff
+
+        @show x_l
+        @show x_u
+        @show x0
+        @show var_types
+    end
 
     # validation
     @assert length(jac_i) == length(jac_j)

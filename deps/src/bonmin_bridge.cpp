@@ -70,6 +70,19 @@ public:
         std::memcpy(xu, x_u.data(), sizeof(Number) * n);
         std::memcpy(gl, g_l.data(), sizeof(Number) * m);
         std::memcpy(gu, g_u.data(), sizeof(Number) * m);
+
+        #ifdef BONMIN_DEBUG
+        std::cerr << "x_l:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << xl[i];
+        std::cerr << "\nx_u:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << xu[i];
+        std::cerr << "\ng_l:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << gl[i];
+        std::cerr << "\ng_u:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << gu[i];
+        std::cerr << std::endl;
+        #endif
+
         return true;
     }
 
@@ -115,17 +128,36 @@ public:
 
     bool eval_f(Index, const Number* x, bool, Number& obj_value) override {
         obj_value = cb.eval_f(cb.user_data, x, n);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_f x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  f: " << obj_value << "\n";
+        #endif
         return true;
     }
 
     bool eval_grad_f(Index, const Number* x, bool, Number* grad_f) override {
         //std::cerr << "C++ eval_grad_f called, n = " << n << "\n";
         cb.eval_grad_f(cb.user_data, x, n, grad_f);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_grad_f x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  grad:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << grad_f[i];
+        std::cerr << "\n";
+        #endif
         return true;
     }
 
     bool eval_g(Index, const Number* x, bool, Index, Number* g) override {
         cb.eval_g(cb.user_data, x, n, g, m);
+        #ifdef BONMIN_DEBUG
+        std::cerr << "eval_g x:";
+        for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+        std::cerr << "  g:";
+        for (int i = 0; i < m; ++i) std::cerr << " " << g[i];
+        std::cerr << "\n";
+        #endif
         return true;
     }
 
@@ -135,8 +167,21 @@ public:
                 iRow[k] = jac_i[k];
                 jCol[k] = jac_j[k];
             }
+            #ifdef BONMIN_DEBUG
+            std::cerr << "jac structure:";
+            for (int k = 0; k < nnz_jac; ++k) {
+                std::cerr << " (" << iRow[k] << "," << jCol[k] << ")";
+            }
+            #endif
         } else {
             cb.eval_jac_g(cb.user_data, x, n, values, nnz_jac);
+            #ifdef BONMIN_DEBUG
+            std::cerr << "eval_jac_g x:";
+            for (int i = 0; i < n; ++i) std::cerr << " " << x[i];
+            std::cerr << "  values:";
+            for (int k = 0; k < nnz_jac; ++k) std::cerr << " " << values[k];
+            std::cerr << "\n";
+            #endif
         }
         return true;
     }
@@ -196,6 +241,70 @@ extern "C" double bonmin_solve_problem(
     bonmin_eval_jac_g_cb eval_jac_g,
     double* x_out
 ) {
+    #ifdef BONMIN_DEBUG
+    std::cerr << "bonmin_solve_problem\n";
+    std::cerr << "  n = " << n << "\n";
+    std::cerr << "  m = " << m << "\n";
+    std::cerr << "  m_nlp = " << m_nlp << "\n";
+    std::cerr << "  nnz_jac = " << nnz_jac << "\n";
+
+    std::cerr << "  x_l = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x_l[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  x_u = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x_u[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  x0 = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << x0[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  var_types = [";
+    for (int i = 0; i < n; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << var_types[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  g_l = [";
+    for (int i = 0; i < m; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << g_l[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  g_u = [";
+    for (int i = 0; i < m; ++i) {
+        if (i) std::cerr << ", ";
+        std::cerr << g_u[i];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  jac_i = [";
+    for (int k = 0; k < nnz_jac; ++k) {
+        if (k) std::cerr << ", ";
+        std::cerr << jac_i[k];
+    }
+    std::cerr << "]\n";
+
+    std::cerr << "  jac_j = [";
+    for (int k = 0; k < nnz_jac; ++k) {
+        if (k) std::cerr << ", ";
+        std::cerr << jac_j[k];
+    }
+    std::cerr << "]\n";
+    #endif
+
     CallbackBundle cb{user_data, eval_f, eval_grad_f, eval_g, eval_jac_g};
 
     SmartPtr<MoiTMINLP> tminlp = new MoiTMINLP(

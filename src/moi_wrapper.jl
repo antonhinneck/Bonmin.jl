@@ -8,6 +8,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     primal_status::MOI.ResultStatusCode
     objective_value::Float64
     solution::Vector{Float64}
+    debug::Bool
 
     function Optimizer()
         model = MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}())
@@ -19,6 +20,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
             MOI.NO_SOLUTION,
             NaN,
             Float64[],
+            false
         )
     end
 end

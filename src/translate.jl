@@ -177,10 +177,6 @@ function build_flat_model(model::MOI.ModelLike)
         end
     end
 
-    @show(A_i)
-    @show(A_j)
-    @show(A_v)
-
     # combined Jacobian structure
     jac_i = copy(jac_i_nlp)
     jac_j = copy(jac_j_nlp)
