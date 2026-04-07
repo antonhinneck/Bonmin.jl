@@ -6,7 +6,7 @@
 
 The wrapper has two components:
 
- * a thin wrapper around the complete C++ API
+ * a thin wrapper around the C++ API
  * an interface to [MathOptInterface](https://github.com/jump-dev/MathOptInterface.jl)
 
 ## Affiliation

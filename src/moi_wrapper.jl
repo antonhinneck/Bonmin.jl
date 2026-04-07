@@ -39,10 +39,15 @@ MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.Equal
 MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.Integer}) = true
 MOI.supports_constraint(::Optimizer, ::Type{MOI.VariableIndex}, ::Type{MOI.ZeroOne}) = true
 
-# affine constraints
+# scalar affine constraints
 MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarAffineFunction{Float64}}, ::Type{MOI.GreaterThan{Float64}}) = true
 MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarAffineFunction{Float64}}, ::Type{MOI.LessThan{Float64}}) = true
 MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarAffineFunction{Float64}}, ::Type{MOI.EqualTo{Float64}}) = true
+
+# scalar nonlinear constraints
+MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarNonlinearFunction{Float64}}, ::Type{MOI.GreaterThan{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarNonlinearFunction{Float64}}, ::Type{MOI.LessThan{Float64}}) = true
+MOI.supports_constraint(::Optimizer, ::Type{MOI.ScalarNonlinearFunction{Float64}}, ::Type{MOI.EqualTo{Float64}}) = true
 
 # objectives
 MOI.supports(::Optimizer, ::MOI.ObjectiveSense) = true
