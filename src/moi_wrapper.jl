@@ -10,7 +10,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
     solution::Vector{Float64}
     debug::Bool
 
-    function Optimizer()
+    function Optimizer(; debug::Bool = false)
         model = MOI.Utilities.UniversalFallback(MOI.Utilities.Model{Float64}())
         return new(
             model,
@@ -20,7 +20,7 @@ mutable struct Optimizer <: MOI.AbstractOptimizer
             MOI.NO_SOLUTION,
             NaN,
             Float64[],
-            false
+            debug
         )
     end
 end
