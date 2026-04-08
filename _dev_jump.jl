@@ -26,9 +26,7 @@ using Bonmin
 using JuMP
 import MathOptInterface as MOI
 
-opt = Bonmin.Optimizer
-opt.debug = true
-model = Model(() -> opt(debug = true))
+model = JuMP.Model(() -> Bonmin.Optimizer(debug = true))
 @variable(model, x >= 0, Bin, start = 0.0)
 @variable(model, y >= 0, Int, start = 1.0)
 @variable(model, z >= 0, start = 1.2)

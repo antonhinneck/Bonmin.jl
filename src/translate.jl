@@ -81,6 +81,10 @@ function build_flat_model(model::MOI.ModelLike)
     # variables
     vars = MOI.get(model, MOI.ListOfVariableIndices())
     n = length(vars)
+    @show typeof(model)
+    @show n
+    @show vars
+    @assert length(vars) == n
     var_to_col = Dict(vi => i for (i, vi) in enumerate(vars))  # 1-based
 
     # NLP block
@@ -209,6 +213,11 @@ function build_flat_model(model::MOI.ModelLike)
 
     # variable data
     x_l, x_u, x0, var_types = _var_bounds(model, vars)
+    @show length(x_l), length(x_u), length(x0), length(var_types)
+    @assert length(x_l) == n
+    @assert length(x_u) == n
+    @assert length(x0) == n
+    @assert length(var_types) == n
 
     # total constraints
     m = m_nlp + m_aff
