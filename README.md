@@ -15,7 +15,7 @@ This project is currently privately maintained.
 
 ## License
 
-tba
+[MIT](license.txt) 
 
 ## Installation
 
@@ -36,7 +36,6 @@ Install Bonmin.jl using `Pkg.add`:
 ```julia
 import Pkg
 Pkg.add(url="https://github.com/antonhinneck/Bonmin.jl")
-Pkg.build("Bonmin")
 ```
 
 ## Use with JuMP
