@@ -31,7 +31,7 @@ model = JuMP.Model(() -> Bonmin.Optimizer(debug = true))
 @variable(model, y >= 0, Int, start = 1.0)
 @variable(model, z >= 0, start = 1.2)
 @NLobjective(model, Min, cos(x) + cos(y) + cos(z))
-@constraint(model, z <= 2.0)
+@NLconstraint(model, cos(z) <= 2.0)
 
 function dump_constraint_types(model)
     b = backend(model)
