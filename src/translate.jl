@@ -81,38 +81,23 @@ function build_flat_model(model::MOI.ModelLike)
     # variables
     vars = MOI.get(model, MOI.ListOfVariableIndices())
     n = length(vars)
-    @show typeof(model)
-    @show n
-    @show vars
-    @assert length(vars) == n
     var_to_col = Dict(vi => i for (i, vi) in enumerate(vars))  # 1-based
 
-    # NLP block
-    nlp = MOI.get(model, MOI.NLPBlock())
-    if nlp === nothing
-        evaluator = nothing
-        jac_i_nlp = Cint[]
-        jac_j_nlp = Cint[]
-        g_l_nlp = Float64[]
-        g_u_nlp = Float64[]
-        m_nlp = 0
-        has_nlp_objective = false
-    else
-        evaluator = nlp.evaluator
-        MOI.initialize(evaluator, [:Grad, :Jac])
+    # -------------------------
+    # NONLINEAR PART
+    # -------------------------
+    nlp_info = _extract_nlp_representation(model, vars)
 
-        jac_struct = collect(MOI.jacobian_structure(evaluator))
-        jac_i_nlp = Cint[i - 1 for (i, _) in jac_struct]  # 0-based
-        jac_j_nlp = Cint[j - 1 for (_, j) in jac_struct]  # 0-based
+    evaluator = nlp_info.evaluator
+    m_nlp = nlp_info.m_nlp
+    g_l_nlp = nlp_info.g_l_nlp
+    g_u_nlp = nlp_info.g_u_nlp
+    jac_i_nlp = nlp_info.jac_i_nlp
+    jac_j_nlp = nlp_info.jac_j_nlp
+    has_nlp_objective = nlp_info.has_nlp_objective
 
-        @assert length(jac_i_nlp) == length(jac_j_nlp)
-        @assert all(0 .<= jac_j_nlp .< n) "Invalid Jacobian column index"
-
-        m_nlp = length(nlp.constraint_bounds)
-        g_l_nlp = [b.lower for b in nlp.constraint_bounds]
-        g_u_nlp = [b.upper for b in nlp.constraint_bounds]
-        has_nlp_objective = nlp.has_objective
-    end
+    @assert length(jac_i_nlp) == length(jac_j_nlp)
+    @assert all(0 .<= jac_j_nlp .< n) "Invalid Jacobian column index"
 
     # -------------------------
     # AFFINE CONSTRAINTS
@@ -160,7 +145,7 @@ function build_flat_model(model::MOI.ModelLike)
         s = MOI.get(model, MOI.ConstraintSet(), ci)
 
         for t in f.terms
-            col = var_to_col[t.variable] - 1  # 0-based
+            col = var_to_col[t.variable] - 1
             push!(A_i, Cint(row - 1))
             push!(A_j, Cint(col))
             push!(A_v, t.coefficient)
@@ -181,39 +166,50 @@ function build_flat_model(model::MOI.ModelLike)
         end
     end
 
-    # combined Jacobian structure
+    # -------------------------
+    # COMBINED JACOBIAN STRUCTURE
+    # -------------------------
     jac_i = copy(jac_i_nlp)
     jac_j = copy(jac_j_nlp)
     for k in eachindex(A_i)
-        push!(jac_i, Cint(A_i[k] + m_nlp))  # shift affine rows below NLP rows
+        push!(jac_i, Cint(A_i[k] + m_nlp))  # affine rows after NLP rows
         push!(jac_j, A_j[k])
     end
 
     @assert length(jac_i) == length(jac_j)
 
-    # objective
+    # -------------------------
+    # OBJECTIVE
+    # -------------------------
     obj_aff_terms = Tuple{Int,Float64}[]
     obj_constant = 0.0
     has_affine_objective = false
 
-    if MOI.supports(model, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}())
+    obj_type = MOI.get(model, MOI.ObjectiveFunctionType())
+
+    if has_nlp_objective || obj_type == MOI.ScalarNonlinearFunction
+        has_affine_objective = false
+        empty!(obj_aff_terms)
+        obj_constant = 0.0
+    elseif obj_type == MOI.ScalarAffineFunction{Float64}
         f = MOI.get(model, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}())
         has_affine_objective = true
         obj_constant = f.constant
         for t in f.terms
-            push!(obj_aff_terms, (var_to_col[t.variable], t.coefficient)) # 1-based col
+            push!(obj_aff_terms, (var_to_col[t.variable], t.coefficient))
         end
-    end
-
-    if has_nlp_objective
-        has_affine_objective = false
-        empty!(obj_aff_terms)
+    elseif obj_type == MOI.VariableIndex
+        v = MOI.get(model, MOI.ObjectiveFunction{MOI.VariableIndex}())
+        has_affine_objective = true
         obj_constant = 0.0
+        push!(obj_aff_terms, (var_to_col[v], 1.0))
     end
 
-    # variable data
+    # -------------------------
+    # VARIABLES
+    # -------------------------
     x_l, x_u, x0, var_types = _var_bounds(model, vars)
-    @show length(x_l), length(x_u), length(x0), length(var_types)
+
     @assert length(x_l) == n
     @assert length(x_u) == n
     @assert length(x0) == n
@@ -223,8 +219,9 @@ function build_flat_model(model::MOI.ModelLike)
     m = m_nlp + m_aff
 
     @assert length(g_l_nlp) == m_nlp
+    @assert length(g_u_nlp) == m_nlp
     @assert length(g_l_aff) == m_aff
-    @assert m == m_nlp + m_aff
+    @assert length(g_u_aff) == m_aff
 
     return FlatModel(
         n,
