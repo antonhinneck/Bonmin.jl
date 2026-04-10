@@ -54,7 +54,7 @@ const TOL = 1e-5
         @variable(model, y >= 0)
 
         @NLobjective(model, Min, (x - 1)^2 + (y - 2)^2)
-        @NLconstraint(model, x + y >= 1)
+        @NLconstraint(model, x * y >= 1)
 
         optimize!(model)
 
@@ -73,6 +73,7 @@ const TOL = 1e-5
         @variable(model, z >= 0)
 
         @NLobjective(model, Min, cos(x) + cos(y) + cos(z))
+        @NLconstraint(model, x * y >= 1)
 
         optimize!(model)
 
